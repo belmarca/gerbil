@@ -261,7 +261,10 @@
   (def (for-range-args iter-e)
     (syntax-case iter-e ()
       ((_ end) #'(0 end 1))
-      ((_ start end) #'(start end (if (> $start $end) -1 1)))
+      ((_ start end)
+       (if (fx> (stx-e #'start) (stx-e #'end))
+         #'(start end -1)
+         #'(start end 1)))
       ((_ start end step) #'(start end step))))
 
   (def (for-naturals-args iter-e)
@@ -346,31 +349,35 @@
 
   (def (generate-for1-range iter-e bind-e filter body)
     (with-syntax* (((start end step) (for-range-args iter-e))
+                   (filter-e filter)
                    (bind-e bind-e)
                    ((body ...) body)
-                   (iter-do-e
-                    (if filter
-                      (with-syntax ((filter-e filter))
-                        #'(lambda (n)
-                            (let ((bind-e n))
-                              (when filter-e
-                                body ...))))
-                      #'(lambda (n)
-                          (let ((bind-e n))
-                            body ...)))))
-      #'(let* ((iter-do iter-do-e)
-               ($start start)
-               ($end end)
-               ($step step))
-          (if (negative? $step)
-            (let lp ((val $start))
-              (when (> val $end)
-                (iter-do val)
-                (lp (+ val $step))))
-            (let lp ((val $start))
-              (when (< val $end)
-                (iter-do val)
-                (lp (+ val $step))))))))
+                   (step>0 (positive? (stx-e #'step)))
+                   (unfiltered-range> (and (not filter) #'step>0))
+                   (unfiltered-range< (and (not filter) (not #'step>0)))
+                   (filtered-range>   (and filter #'step>0))
+                   (filtered-range<   (and filter (not #'step>0))))
+      (cond
+       (#'unfiltered-range>
+        #'(let lp ((bind-e start))
+            (when (fx< bind-e end)
+              body ...
+              (lp (fx+ bind-e step)))))
+       (#'unfiltered-range<
+        #'(let lp ((bind-e start))
+            (when (fx> bind-e end)
+              body ...
+              (lp (fx+ bind-e step)))))
+       (#'filtered-range>
+        #'(let lp ((bind-e start))
+            (when (fx< bind-e end)
+              (if filter-e body ...)
+              (lp (fx+ bind-e step)))))
+       (#'filtered-range<
+        #'(let lp ((bind-e start))
+            (when (fx> bind-e end)
+              (if filter-e body ...)
+              (lp (fx+ bind-e step))))))))
 
   (def (generate-for1-naturals iter-e bind-e filter body)
     (with-syntax* (((start step) (for-naturals-args iter-e))
